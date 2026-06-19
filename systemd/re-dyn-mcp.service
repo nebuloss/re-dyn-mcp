@@ -1,0 +1,27 @@
+# re-dyn-mcp.service — gdb dynamic-analysis MCP. Runs on dev-build (QEMU + gdb +
+# symbols live there). mcpproxy on the RE container fronts it as the "dyn" upstream.
+#   sudo cp systemd/re-dyn-mcp.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now re-dyn-mcp
+# Expects the built server at /opt/re-dyn-mcp/dist/server.js (npm run build).
+[Unit]
+Description=RE dynamic-analysis MCP (gdb-multiarch vs QEMU dhd harness, :8781)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/re-dyn-mcp
+Environment=RE_DYN_PORT=8781
+# 0.0.0.0 so mcpproxy on the RE container reaches it over VLAN 50.
+Environment=RE_DYN_HOST=0.0.0.0
+Environment=GDB_BIN=gdb-multiarch
+# QEMU harness gdbstub (GDB=1 ./run-harness-dhd.sh exposes :1234) + kernel symbols.
+Environment=HARNESS_GDB=localhost:1234
+Environment=HARNESS_VMLINUX=/home/guillaume/be98/job-tmp/cp1-harness/vmlinux.harness
+Environment=LOG_LEVEL=info
+ExecStart=/usr/bin/node /opt/re-dyn-mcp/dist/server.js
+Restart=on-failure
+RestartSec=5
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

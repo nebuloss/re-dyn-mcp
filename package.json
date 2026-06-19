@@ -1,0 +1,32 @@
+{
+  "name": "@nebuloss/re-dyn-mcp",
+  "version": "1.0.0",
+  "description": "Dynamic-analysis MCP server: drives gdb-multiarch (GDB/MI) against the QEMU dhd harness gdbstub for the GT-BE98 / BCM6726b0 effort. Behind mcpproxy as the 'dyn' upstream.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "author": "nebuloss",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nebuloss/re-dyn-mcp.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "dist/server.js",
+  "bin": {
+    "re-dyn-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
