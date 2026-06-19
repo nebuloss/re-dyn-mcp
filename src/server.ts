@@ -1,7 +1,9 @@
 /**
  * re-dyn-mcp — dynamic-analysis MCP (gdb-multiarch over GDB/MI vs the QEMU dhd
- * harness gdbstub). Runs on dev-build (where QEMU + gdb + symbols live); mcpproxy
- * on the RE container fronts it as the "dyn" upstream over VLAN 50.
+ * harness gdbstub). Runs on dev-build (where QEMU + gdb + symbols live). It is a
+ * DIRECT MCP entry in the client's .mcp.json ("dyn": http://10.0.50.21:8781/mcp),
+ * NOT a mcpproxy upstream — dynamic debugging is stateful/latency-sensitive, so it
+ * talks to the client straight over VLAN 50.
  *
  * Env: RE_DYN_PORT (8781), RE_DYN_HOST (0.0.0.0 — reachable cross-host),
  *      HARNESS_GDB (localhost:1234), HARNESS_VMLINUX, GDB_BIN, LOG_LEVEL.
