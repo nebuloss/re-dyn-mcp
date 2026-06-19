@@ -9,8 +9,14 @@ After=network.target
 
 [Service]
 Type=simple
+# Run as the user that owns the harness/QEMU/toolchain paths (not root) so harness_run
+# behaves like a manual run and doesn't litter root-owned files in the user tree.
+User=guillaume
+Group=guillaume
 WorkingDirectory=/opt/re-dyn-mcp
 Environment=RE_DYN_PORT=8781
+# QEMU dhd harness (run-harness-dhd.sh) — RUN side only; build stays on dev-build via rtk.
+Environment=HARNESS_DIR=/home/guillaume/be98/gt-be98-open-wifi/qemu-harness
 # 0.0.0.0 so mcpproxy on the RE container reaches it over VLAN 50.
 Environment=RE_DYN_HOST=0.0.0.0
 Environment=GDB_BIN=gdb-multiarch

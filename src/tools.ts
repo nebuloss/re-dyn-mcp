@@ -9,12 +9,32 @@
  */
 
 import { z } from "zod";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { execFile } from "node:child_process";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { GdbSession, type StopInfo } from "./gdb.js";
 import { capOutput, errMsg } from "./util.js";
 
 const DEFAULT_TARGET = process.env.HARNESS_GDB ?? "localhost:1234";
 const DEFAULT_SYMBOLS = process.env.HARNESS_VMLINUX ?? "";
+// Harness lifecycle (RUN only — heavy BUILDs stay on dev-build via rtk/SSH).
+const HARNESS_DIR = process.env.HARNESS_DIR ?? "/home/guillaume/be98/gt-be98-open-wifi/qemu-harness";
+const HARNESS_LOG = path.join(HARNESS_DIR, "traces", "dhd-harness.log");
+
+function shell(cmd: string, timeoutMs = 15_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("bash", ["-lc", cmd], { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err: any, out, errout) => {
+      const s = (out || "") + (errout ? "\n[stderr] " + errout : "");
+      // Only a spawn failure (ENOENT etc., string code) is fatal; a non-zero EXIT
+      // (e.g. pkill found nothing) is normal for these admin commands — return output.
+      if (err && typeof err.code === "string") reject(new Error((err.message || "exec failed").slice(0, 200)));
+      else resolve(s);
+    });
+  });
+}
+const tailFile = (p: string, n: number): string =>
+  fs.existsSync(p) ? fs.readFileSync(p, "utf8").split("\n").slice(-n).join("\n") : "";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -38,6 +58,72 @@ const fmtStop = (s: StopInfo) =>
 const gdb = new GdbSession();
 
 export function registerTools(server: McpServer): void {
+  // ---- harness lifecycle (RUN/STOP/LOGS) — build stays on dev-build via rtk ----
+  server.registerTool(
+    "harness_run",
+    {
+      title: "Run the QEMU dhd harness",
+      description:
+        "Launch the QEMU dhd harness in the background (run-harness-dhd.sh). gdb:true opens the gdbstub on " +
+        ":1234 halted at reset — then call gdb_connect. Does NOT build: if you changed the device-model/kernel, " +
+        "rebuild on dev-build first (apply-to-qemu.sh / build-harness-kernel.sh via rtk). Stops any prior run. " +
+        "devprops e.g. 'chipid=0x6726,ipc-rev=8'.",
+      inputSchema: {
+        gdb: z.boolean().optional().describe("open gdbstub :1234, CPU halted at reset (default false)."),
+        devprops: z.string().optional().describe("extra broadcom-fmac-stub device props."),
+        timeout_s: z.number().optional().describe("max harness runtime (default 120; gdb mode 3600)."),
+      },
+    },
+    async ({ gdb: useGdb, devprops, timeout_s }) =>
+      guard(async () => {
+        await shell(`[ -f /tmp/harness.pid ] && kill -TERM -- -"$(cat /tmp/harness.pid)" 2>/dev/null; true`).catch(() => {});
+        const to = timeout_s ?? (useGdb ? 3600 : 120);
+        const dp = (devprops ?? "").replace(/[^A-Za-z0-9=,_x]/g, "");
+        // setsid -> the run pipeline is its own process group; pid saved so harness_stop
+        // can kill the whole group precisely (no pkill self-match games).
+        const cmd = `cd ${HARNESS_DIR} && setsid bash -c "GDB=${useGdb ? 1 : 0} TIMEOUT=${to} ./scripts/run-harness-dhd.sh '${dp}'" >/tmp/harness-run.out 2>&1 & echo $! > /tmp/harness.pid`;
+        await shell(cmd, 8_000);
+        await new Promise((r) => setTimeout(r, useGdb ? 1500 : 4500));
+        const tail = tailFile(HARNESS_LOG, 25) || tailFile("/tmp/harness-run.out", 15) || "(no trace yet)";
+        return capped(
+          `harness launched (gdb=${!!useGdb}, timeout=${to}s)` +
+            (useGdb ? " — gdbstub :1234 halted at reset; call gdb_connect." : "") +
+            `\n--- trace tail ---\n${tail}`
+        );
+      })
+  );
+
+  server.registerTool(
+    "harness_stop",
+    {
+      title: "Stop the QEMU harness",
+      description: "Kill the running QEMU dhd harness (and any attached gdb session).",
+      inputSchema: {},
+    },
+    async () =>
+      guard(async () => {
+        gdb.kill();
+        const out = await shell(
+          `if [ -f /tmp/harness.pid ]; then kill -TERM -- -"$(cat /tmp/harness.pid)" 2>/dev/null; sleep 1; kill -KILL -- -"$(cat /tmp/harness.pid)" 2>/dev/null; rm -f /tmp/harness.pid; echo stopped; else echo 'no harness pid (not started via harness_run)'; fi`
+        );
+        return text(out.trim() || "stopped");
+      })
+  );
+
+  server.registerTool(
+    "harness_logs",
+    {
+      title: "Tail the harness trace",
+      description: "Tail the harness boot / dhd-probe / IPC trace (traces/dhd-harness.log).",
+      inputSchema: { lines: z.number().optional().describe("number of trailing lines (default 60).") },
+    },
+    async ({ lines }) =>
+      guard(async () => {
+        const data = tailFile(HARNESS_LOG, lines ?? 60);
+        return data ? capped(data) : text("(no trace log yet — run harness_run first)");
+      })
+  );
+
   server.registerTool(
     "gdb_connect",
     {
