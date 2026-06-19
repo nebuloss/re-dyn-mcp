@@ -1,0 +1,26 @@
+name: CI
+
+# Typecheck-only CI. The runtime drives gdb-multiarch against the QEMU dhd
+# harness, neither of which is on GitHub runners — exercised on dev-build, not here.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        # no package-lock.json committed -> install (not ci), no lockfile-cache.
+        run: npm install --no-fund --no-audit
+
+      - name: Build (typecheck via tsc)
+        run: npm run build
